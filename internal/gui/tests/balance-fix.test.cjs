@@ -123,7 +123,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     assert.equal(said[2], "Allowance unavailable");
     const missing = await page.evaluate(() => [
       "…/api/usage/token takes the API key, not this token: a new-api relay tells the account's balance to the token at /api/user/self.",
-      "The token needs a Balance URL: a new-api relay tells the account's balance to it at /api/user/self.",
+      "The token needs a Balance URL: a new-api relay uses /api/user/self; a sub2api panel uses /api/v1/user/profile to read the account's balance.",
       "Use {url}", "Check balance", "Ask the Balance URL now, as the form has it", "No Balance URL to ask",
       "A new-api relay also wants the header New-Api-User = your user ID (shown in the site's personal settings): add it under Headers.",
       "The Balance URL …/api/usage/token takes the API key, not the access token — set it to …/api/user/self in the provider's settings",
