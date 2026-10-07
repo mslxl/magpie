@@ -10767,8 +10767,9 @@ function balanceError(err) {
   return "";
 }
 
-// Both new-api and sub2api can issue JWTs, so the user chooses which
-// account balance endpoint to use rather than inferring it from the token.
+// An account token is unused without a Balance URL and can't authenticate
+// /api/usage/token, which takes API keys only. Other URLs may belong to
+// another relay and are left alone; both new-api and sub2api issue JWTs.
 function balanceFix(p) {
   const box = el("div", "bal-fix");
   const origin = (u) => { try { const x = new URL(u); return /^https?:$/.test(x.protocol) ? x.origin : ""; } catch { return ""; } };
@@ -10781,7 +10782,7 @@ function balanceFix(p) {
     let path = "";
     try { path = new URL(u).pathname.replace(/\/+$/, ""); } catch {}
     let why = "";
-    if (path === "/api/usage/token") why = t("…/api/usage/token takes the API key, not this token: a new-api relay tells the account's balance to the token at /api/user/self.");
+    if (path === "/api/usage/token") why = t("…/api/usage/token takes the API key, not this token: for the account's balance, new-api uses /api/user/self; sub2api uses /api/v1/user/profile.");
     else if (!u) why = t("The token needs a Balance URL: a new-api relay uses /api/user/self; a sub2api panel uses /api/v1/user/profile to read the account's balance.");
     if (why) {
       box.classList.add("warn");
@@ -10793,9 +10794,9 @@ function balanceFix(p) {
         const use = el("button", "text action", t("Use {url}", { url: to }));
         use.onclick = () => {
           draft.balanceURL = to;
-          if (path === "/api/v1/user/profile") draft.balancePath = "$data.balance";
-          // New-api's key quota fields aren't in its account reply.
-          else if (!(draft.balancePath || "").trim() || /total_(available|granted|used)|unlimited_quota/.test(draft.balancePath)) draft.balancePath = "$data.quota / 500000";
+          // An unrelated expression belongs to the user, so changing the
+          // endpoint must not overwrite it.
+          if (!(draft.balancePath || "").trim() || /total_(available|granted|used)|unlimited_quota/.test(draft.balancePath)) draft.balancePath = balanceFieldOf(to);
           const ed = box.closest(".editor");
           const bal = ed?.querySelector(".bal-url");
           const field = ed?.querySelector(".bal-path");
