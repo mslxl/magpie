@@ -656,7 +656,7 @@ func codexIn(at place) *Agent {
 
 	a := atomic(&Agent{
 		ID: "codex", Name: "Codex", Icon: "codex-color", Bin: "codex", Dir: dir, Path: path,
-		UA: []string{"codex"},
+		UA: []string{"codex", "acp-extension-codex"},
 		// Codex as it was before magpie: its default puts it back as
 		// installed, OpenAI and its default model, where this brings back
 		// the provider and model the user had

@@ -2753,7 +2753,8 @@ func claudeCodeHeader(k string) bool {
 // (codex_cli_rs, codex_exec, codex_vscode, Codex Desktop).
 func fromCodex(in http.Header) bool {
 	for _, v := range []string{in.Get("User-Agent"), in.Get("originator")} {
-		if strings.HasPrefix(strings.ToLower(v), "codex") {
+		v = strings.ToLower(v)
+		if strings.HasPrefix(v, "codex") || strings.HasPrefix(v, "acp-extension-codex") {
 			return true
 		}
 	}
