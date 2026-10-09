@@ -126,6 +126,13 @@ func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
 			break // preserve native compaction's existing passthrough
 		}
 		body, _ = codexInput(body, false)
+		// Native Codex requests bypass provider.Prepare. ChatGPT rejects a
+		// replayed hosted web_search_call unless the request declares the
+		// hosted tool, including on remote compaction.
+		// Codex marks Responses Lite with this internal header; keep its
+		// additional_tools wire shape when declaring replayed search history.
+		lite := strings.EqualFold(r.Header.Get("X-OpenAI-Internal-Codex-Responses-Lite"), "true")
+		body = provider.EnsureWebSearchToolForHistory(body, lite)
 		if id, ok := codexAccounts(r, model); ok {
 			s.serveAgent(w, r, provider.Responses, withModel(body, id))
 			return

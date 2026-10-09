@@ -293,6 +293,13 @@ func codexBody(body []byte) []byte {
 	if _, ok := m["text"]; !ok {
 		m["text"] = map[string]any{"verbosity": "medium"}
 	}
+	// ChatGPT rejects replayed hosted web_search_call history unless the
+	// request declares the hosted web_search tool. Compaction requests often
+	// have no tools, so declare it as cached-only and keep the request from
+	// starting a new search. Responses Lite carries tools in an
+	// additional_tools input item; standard Responses carries them at top
+	// level.
+	ensureWebSearchToolForHistory(m, codexResponsesLite(m))
 
 	// reasoning, and its encrypted content to carry across turns, unless
 	// it is turned off; "ultra" is Codex CLI's name for sending "max"
@@ -320,6 +327,150 @@ func codexBody(body []byte) []byte {
 		return body
 	}
 	return out
+}
+
+// EnsureCodexWebSearchTool adds the compatibility declaration needed when a
+// Responses request replays hosted web-search history. It is exported for the
+// native Codex passthrough path, which does not use codexBody.
+func EnsureCodexWebSearchTool(body []byte) []byte {
+	return EnsureWebSearchToolForHistory(body, false)
+}
+
+// EnsureWebSearchToolForHistory declares the cached-only hosted web_search
+// tool when replayed history contains a web_search_call. Responses Lite puts
+// the declaration in input.additional_tools; standard Responses puts it at
+// the top level.
+func EnsureWebSearchToolForHistory(body []byte, responsesLite bool) []byte {
+	var m map[string]any
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	if dec.Decode(&m) != nil || m == nil {
+		return body
+	}
+	if !ensureWebSearchToolForHistory(m, responsesLite) {
+		return body
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+func ensureCodexWebSearchTool(m map[string]any) bool {
+	return ensureWebSearchToolForHistory(m, false)
+}
+
+func codexResponsesLite(m map[string]any) bool {
+	reasoning, _ := m["reasoning"].(map[string]any)
+	context, _ := reasoning["context"].(string)
+	return strings.EqualFold(strings.TrimSpace(context), "all_turns")
+}
+
+func ensureWebSearchToolForHistory(m map[string]any, responsesLite bool) bool {
+	input, ok := m["input"].([]any)
+	if !ok {
+		return false
+	}
+	hasSearchCall := false
+	callerTools := false
+	additional := -1
+	callerAdditionalTools := false
+	for i, raw := range input {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch item["type"] {
+		case "web_search_call":
+			hasSearchCall = true
+		case "additional_tools":
+			tools, _ := item["tools"].([]any)
+			for _, rawTool := range tools {
+				tool, _ := rawTool.(map[string]any)
+				if strings.HasPrefix(strings.TrimSpace(stringValue(tool["type"])), "web_search") {
+					return false
+				}
+			}
+			if len(tools) > 0 {
+				callerTools = true
+				callerAdditionalTools = true
+			}
+			if additional < 0 {
+				additional = i
+			}
+		}
+	}
+	if !hasSearchCall {
+		return false
+	}
+	tool := map[string]any{"type": "web_search", "external_web_access": false}
+	if tools, _ := m["tools"].([]any); len(tools) > 0 {
+		callerTools = true
+	}
+	if tools, _ := m["tools"].([]any); hasSearchTool(tools) {
+		return false
+	}
+	if responsesLite {
+		if additional < 0 {
+			at := len(input)
+			if at > 0 {
+				if last, _ := input[at-1].(map[string]any); last != nil && last["type"] == "compaction_trigger" {
+					at--
+				}
+			}
+			item := map[string]any{"type": "additional_tools", "role": "developer", "tools": []any{tool}}
+			input = append(input, nil)
+			copy(input[at+1:], input[at:])
+			input[at] = item
+			m["input"] = input
+		} else {
+			item, _ := input[additional].(map[string]any)
+			tools, _ := item["tools"].([]any)
+			item["tools"] = append(tools, tool)
+		}
+	} else if additional >= 0 {
+		item, _ := input[additional].(map[string]any)
+		tools, _ := item["tools"].([]any)
+		item["tools"] = append(tools, tool)
+	} else {
+		tools, _ := m["tools"].([]any)
+		m["tools"] = append(tools, tool)
+	}
+	if !callerTools && !callerAdditionalTools {
+		if choice, exists := m["tool_choice"]; !exists || canPinCodexWebSearchToolChoice(choice) {
+			m["tool_choice"] = "none"
+		}
+	}
+	return true
+}
+
+func canPinCodexWebSearchToolChoice(choice any) bool {
+	switch v := choice.(type) {
+	case nil:
+		return true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "", "auto", "none":
+			return true
+		}
+	}
+	return false
+}
+
+func hasSearchTool(tools []any) bool {
+	for _, raw := range tools {
+		tool, _ := raw.(map[string]any)
+		if strings.HasPrefix(strings.TrimSpace(stringValue(tool["type"])), "web_search") {
+			return true
+		}
+	}
+	return false
+}
+
+func stringValue(v any) string {
+	s, _ := v.(string)
+	return s
 }
 
 // conversationKey names the conversation a request belongs to, for a client

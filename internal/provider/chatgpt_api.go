@@ -619,6 +619,19 @@ func siwcBody(body []byte) []byte {
 			m["tools"] = tools
 		}
 	}
+	// ChatGPT rejects replayed hosted search history unless the cached-only
+	// web_search tool is declared. Preserve Responses Lite's additional_tools
+	// wire shape when the caller used it.
+	lite := false
+	if input, ok := m["input"].([]any); ok {
+		for _, raw := range input {
+			if item, _ := raw.(map[string]any); item != nil && item["type"] == "additional_tools" {
+				lite = true
+				break
+			}
+		}
+	}
+	ensureWebSearchToolForHistory(m, lite)
 	out, err := json.Marshal(m)
 	if err != nil {
 		return body
