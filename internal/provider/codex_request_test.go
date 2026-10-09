@@ -208,6 +208,71 @@ func TestCodexBodyServiceTier(t *testing.T) {
 	}
 }
 
+func TestCodexBodyDeclaresWebSearchForReplayedHistory(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	body := []byte(`{"model":"gpt-6.1-sol","input":[{"type":"message","role":"user","content":"search"},{"type":"web_search_call","id":"ws_1","status":"completed"},{"type":"compaction_trigger"}],"tools":[]}`)
+	var got struct {
+		Input      []map[string]any `json:"input"`
+		Tools      []map[string]any `json:"tools"`
+		ToolChoice string           `json:"tool_choice"`
+	}
+	if err := json.Unmarshal(codexBody(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tools) != 1 || got.Tools[0]["type"] != "web_search" || got.Tools[0]["external_web_access"] != false || got.ToolChoice != "none" {
+		t.Fatalf("search declaration: %+v", got)
+	}
+
+	lite := []byte(`{"model":"gpt-6.1-sol","input":[{"type":"additional_tools","role":"developer","tools":[]},{"type":"web_search_call","id":"ws_1","status":"completed"}],"tools":[]}`)
+	var liteGot struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(EnsureCodexWebSearchTool(lite), &liteGot); err != nil {
+		t.Fatal(err)
+	}
+	if len(liteGot.Input) != 2 || liteGot.Input[0]["type"] != "additional_tools" ||
+		liteGot.Input[0]["tools"].([]any)[0].(map[string]any)["type"] != "web_search" {
+		t.Fatalf("lite declaration: %+v", liteGot)
+	}
+	forced := EnsureCodexWebSearchTool([]byte(`{"input":[{"type":"web_search_call"}],"tools":[],"tool_choice":{"type":"function","name":"keep"}}`))
+	var forcedGot map[string]any
+	if err := json.Unmarshal(forced, &forcedGot); err != nil {
+		t.Fatal(err)
+	}
+	if forcedGot["tool_choice"].(map[string]any)["name"] != "keep" {
+		t.Fatalf("forced tool choice changed: %s", forced)
+	}
+}
+
+func TestWebSearchHistoryResponsesLiteShape(t *testing.T) {
+	body := []byte(`{"input":[{"type":"message","role":"user","content":"q"},{"type":"web_search_call","id":"ws_1"},{"type":"compaction_trigger"}],"tools":[],"tool_choice":"auto"}`)
+	var got map[string]any
+	if err := json.Unmarshal(EnsureWebSearchToolForHistory(body, true), &got); err != nil {
+		t.Fatal(err)
+	}
+	items := got["input"].([]any)
+	if len(items) != 4 || items[2].(map[string]any)["type"] != "additional_tools" || items[3].(map[string]any)["type"] != "compaction_trigger" {
+		t.Fatalf("Lite item order: %v", items)
+	}
+	additional := items[2].(map[string]any)["tools"].([]any)
+	if len(additional) != 1 || additional[0].(map[string]any)["type"] != "web_search" {
+		t.Fatalf("Lite tools: %v", additional)
+	}
+	if got["tool_choice"] != "none" {
+		t.Fatalf("tool choice: %v", got["tool_choice"])
+	}
+
+	forced := EnsureWebSearchToolForHistory([]byte(`{"input":[{"type":"web_search_call"}],"tool_choice":"required"}`), true)
+	var forcedGot map[string]any
+	if err := json.Unmarshal(forced, &forcedGot); err != nil {
+		t.Fatal(err)
+	}
+	if forcedGot["tool_choice"] != "required" {
+		t.Fatalf("required choice changed: %v", forcedGot["tool_choice"])
+	}
+}
+
 // Standalone notifications retain the metadata the native backend recognizes;
 // paired outputs and ID-bearing historical orphans keep their existing rules.
 func TestCodexStandaloneNotifications(t *testing.T) {

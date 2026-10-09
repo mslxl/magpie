@@ -392,6 +392,18 @@ func TestChatGPTAPIBody(t *testing.T) {
 	}
 }
 
+func TestChatGPTAPIBodyDeclaresWebSearchHistory(t *testing.T) {
+	var standard map[string]any
+	if err := json.Unmarshal(siwcBody([]byte(`{"input":[{"type":"message","role":"user","content":"q"},{"type":"web_search_call","id":"ws_1"}],"tools":[],"tool_choice":"auto"}`)), &standard); err != nil {
+		t.Fatal(err)
+	}
+	tools, ok := standard["tools"].([]any)
+	if !ok || len(tools) != 1 || tools[0].(map[string]any)["type"] != "web_search" || standard["tool_choice"] != "none" {
+		t.Fatalf("standard search declaration: %v", standard)
+	}
+
+}
+
 // OpenAI's refusals of a ChatGPT token say what to do: the plan's usage
 // shared with ChatGPT, an account that isn't eligible, a capability the
 // token can't use.
